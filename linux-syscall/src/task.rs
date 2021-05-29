@@ -16,8 +16,53 @@ use linux_object::fs::INodeExt;
 use linux_object::loader::LinuxElfLoader;
 use linux_object::thread::{CurrentThreadExt, ThreadExt};
 use linux_object::time::*;
+use numeric_enum_macro::numeric_enum;
+use core::convert::TryFrom;
+
+numeric_enum! {
+#[repr(u32)]
+#[derive(Debug, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum PR_CTL {
+    PR_SET_NAME = 15,		/* Set process name */
+    PR_GET_NAME = 16		/* Get process name */
+    }
+}
 
 impl Syscall<'_> {
+    /// syscall prctl
+    pub fn sys_prctl(
+        &self,
+        options: u32,
+        mut _arg2: UserInOutPtr<u8>,
+        mut _arg3: UserInOutPtr<u8>,
+        mut _arg4: UserInOutPtr<u8>,
+        mut _arg5: UserInOutPtr<u8>,
+    ) -> SysResult {
+        let prctl_type = match PR_CTL::try_from(options) {
+            Ok(t) => t,
+            Err(_) => {
+                error!("invalid prctl options: {}", options);
+                PR_CTL::PR_GET_NAME
+            }
+        };
+
+        if _arg2.check().is_ok() {
+            match prctl_type {
+                PR_CTL::PR_SET_NAME => {
+                    self.zircon_process().set_name(_arg2.read_cstring().unwrap().as_str());
+                    warn!("prctl set name {}", _arg2.read_cstring().unwrap().as_str());
+                }
+                PR_CTL::PR_GET_NAME => {
+                    let name = self.zircon_process().name();
+                    let _result = _arg2.write_cstring(name.as_str());
+                    warn!("prctl get name {}", name);
+                }
+            };
+        }
+        Ok(0)
+    }
+
     /// Fork the current process. Return the child's PID.
     pub fn sys_fork(&self) -> SysResult {
         info!("fork:");

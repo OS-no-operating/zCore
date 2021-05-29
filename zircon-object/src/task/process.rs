@@ -6,6 +6,7 @@ use {
     futures::channel::oneshot::{self, Receiver, Sender},
     hashbrown::HashMap,
     spin::Mutex,
+    alloc::string::String,
 };
 
 /// Process abstraction
@@ -534,6 +535,16 @@ impl Process {
         } else {
             unreachable!();
         }
+    }
+
+    /// get name
+    pub fn name(&self) -> String {
+        self.base.name()
+    }
+
+    /// set name
+    pub fn set_name(&self, name: &str) {
+        self.base.set_name(name);
     }
 }
 

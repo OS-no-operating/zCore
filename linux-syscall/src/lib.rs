@@ -224,7 +224,7 @@ impl Syscall<'_> {
             Sys::GETGROUPS => self.unimplemented("getgroups", Ok(0)),
             Sys::SETGROUPS => self.unimplemented("setgroups", Ok(0)),
             //            Sys::SETPRIORITY => self.sys_set_priority(a0),
-            Sys::PRCTL => self.unimplemented("prctl", Ok(0)),
+            Sys::PRCTL => self.sys_prctl(a0 as _, a1.into(), a2.into(), a3.into(), a4.into()),
             Sys::MEMBARRIER => self.unimplemented("membarrier", Ok(0)),
             Sys::PRLIMIT64 => self.sys_prlimit64(a0, a1, a2.into(), a3.into()),
             //            Sys::REBOOT => self.sys_reboot(a0 as u32, a1 as u32, a2 as u32, a3.into()),

@@ -14,6 +14,12 @@ BASENAMES := $(notdir  $(basename $(TEST_PATH)))
 
 CFLAG := -Wl,--dynamic-linker=/lib/ld-musl-x86_64.so.1
 
+# for new linux syscall tests
+CS302_TEST_DIR := linux-syscall/test/cs302/
+CS302_TEST_DEST_DIR := rootfs/cs302/
+CS302_TEST_PATH := $(wildcard $(CS302_TEST_DIR)*.c)
+CS302_TEST_BASENAMES := $(notdir  $(basename $(CS302_TEST_PATH)))
+
 .PHONY: rootfs libc-test rcore-fs-fuse image
 
 prebuilt/linux/$(ROOTFS_TAR):
@@ -28,6 +34,10 @@ rootfs: prebuilt/linux/$(ROOTFS_TAR)
 libc-test:
 	cd rootfs && git clone git://repo.or.cz/libc-test --depth 1
 	cd rootfs/libc-test && cp config.mak.def config.mak && echo 'CC := musl-gcc' >> config.mak && make -j
+
+cs302-test:
+	mkdir -p rootfs/cs302
+	@for VAR in $(CS302_TEST_BASENAMES); do gcc $(CS302_TEST_DIR)$$VAR.c -o $(CS302_TEST_DEST_DIR)$$VAR $(CFLAG); done
 
 rcore-fs-fuse:
 ifneq ($(shell rcore-fs-fuse dir image git-version), $(rcore_fs_fuse_revision))

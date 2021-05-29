@@ -6,3 +6,4 @@ Cargo.lock
 /prebuilt/linux/alpine*
 .idea
 scripts/linux/test-result.txt
+scripts/cs302/test-result.txt
