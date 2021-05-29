@@ -6,7 +6,7 @@
 int main(){
     char name[32];
     char *name_new = "new_name";
-    syscall(SYS_prctl, PR_GET_NAME);
+    syscall(SYS_prctl, PR_GET_NAME, (unsigned long)name);
     printf("old name: %s\n", name);
 
     assert(0 != strcmp(name,name_new));
