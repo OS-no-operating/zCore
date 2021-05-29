@@ -84,7 +84,87 @@ impl Syscall<'_> {
         let new_proc: Arc<dyn KernelObject> = new_proc;
         info!("vfork: {} -> {}", self.zircon_process().id(), new_proc.id());
         new_proc.wait_signal(Signal::SIGNALED).await; // wait for execve
+        warn!("vfork(): son process terminated");
         Ok(new_proc.id() as usize)
+    }
+
+    /// wait child id
+    pub async fn sys_waitid(
+        &self,
+        idtype:i32,
+        id: i32,
+        mut infop: UserOutPtr<i32>,
+        options: u32,
+    ) -> SysResult {
+        #[derive(Debug)]
+        enum WaitTarget {
+            AnyChild,
+            AnyChildInGroup,
+            Pid,
+        }
+        bitflags! {
+            struct WaitFlags: u32 {
+                const NOHANG    = 1;
+                const STOPPED   = 2;
+                const EXITED    = 4;
+                const CONTINUED = 8;
+                const NOWAIT    = 0x100_0000;
+            }
+        }
+        warn!("=====Start waitid=====");
+        let target = match idtype {
+            0 => WaitTarget::AnyChild,
+            1 => WaitTarget::Pid,
+            2 => WaitTarget::AnyChildInGroup,
+            _ => unimplemented!(),
+        };
+        let flags = WaitFlags::from_bits_truncate(options);
+        let nohang = flags.contains(WaitFlags::NOHANG);
+        let stopped = flags.contains(WaitFlags::STOPPED);
+        let exited = flags.contains(WaitFlags::EXITED);
+        let continued = flags.contains(WaitFlags::CONTINUED);
+        warn!(
+            "waitid: idtype={:?}, id={:?}, infop={:?},options={:?}",
+            idtype, id, infop,options
+        );
+        let (pid, code) = match target {
+            WaitTarget::AnyChild | WaitTarget::AnyChildInGroup => {
+                wait_child_any(self.zircon_process(), nohang, stopped).await?
+            }
+            WaitTarget::Pid => (id as u64, wait_child(self.zircon_process(), id as u64, nohang, stopped,exited,continued).await?),
+        };
+        warn!("sigchld: {:?}",Signal::SIGCHLD);
+        let si_signo:i32 = 17;
+        infop.write_if_not_null(si_signo)?;
+        infop = infop.add(2);
+        if exited & (code==0) {
+            infop.write_if_not_null(1)?;
+        }
+        else if stopped{
+            match code {
+                0 => infop.write_if_not_null(5)?,
+                -1 => infop.write_if_not_null(1)?,
+                _ => infop.write_if_not_null(-1)?,
+            }
+        }
+        else if continued{
+            match code {
+                0 => infop.write_if_not_null(6)?,
+                -1 => infop.write_if_not_null(1)?,
+                _ => infop.write_if_not_null(-1)?,
+            }
+        }
+         //si_code
+        infop = infop.add(2);
+        infop.write_if_not_null(pid as i32)?;
+        infop = infop.add(2);
+        infop.write_if_not_null(code)?;
+   
+        //wstatus = wstatus.add(count); // Rhis is for the address
+        //warn!("{}",code);
+        warn!("{:?}",infop);
+        warn!("=====End sys_waitid=====");
+        Ok(pid as usize)
     }
 
     /// Create a new thread in the current process.
@@ -137,6 +217,7 @@ impl Syscall<'_> {
         mut wstatus: UserOutPtr<i32>,
         options: u32,
     ) -> SysResult {
+        warn!("sys_wait4 Start");
         #[derive(Debug)]
         enum WaitTarget {
             AnyChild,
@@ -160,16 +241,23 @@ impl Syscall<'_> {
         };
         let flags = WaitFlags::from_bits_truncate(options);
         let nohang = flags.contains(WaitFlags::NOHANG);
-        info!(
+        let stopped = flags.contains(WaitFlags::STOPPED);
+        let exited = flags.contains(WaitFlags::EXITED);
+        let continued = flags.contains(WaitFlags::CONTINUED);
+        warn!(
             "wait4: target={:?}, wstatus={:?}, options={:?}",
             target, wstatus, flags,
         );
         let (pid, code) = match target {
             WaitTarget::AnyChild | WaitTarget::AnyChildInGroup => {
-                wait_child_any(self.zircon_process(), nohang).await?
+                wait_child_any(self.zircon_process(), nohang, stopped).await?
             }
-            WaitTarget::Pid(pid) => (pid, wait_child(self.zircon_process(), pid, nohang).await?),
+            WaitTarget::Pid(pid) => (pid, wait_child(self.zircon_process(), pid, nohang, stopped,exited,continued).await?),
         };
+        //let count:usize = 4;
+        //wstatus = wstatus.add(count); // Rhis is for the address
+        warn!("wait4(): son process terminated code={:?}",wstatus);
+
         wstatus.write_if_not_null(code)?;
         Ok(pid as usize)
     }

@@ -45,6 +45,7 @@ impl Syscall<'_> {
             fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
                 use PollEvents as PE;
                 let proc = self.syscall.linux_process();
+                let process = self.syscall.zircon_process();
                 let mut events = 0;
 
                 // iterate each poll to check whether it is ready
@@ -53,8 +54,16 @@ impl Syscall<'_> {
                     if let Ok(file_like) = proc.get_file_like(poll.fd) {
                         let mut fut = Box::pin(file_like.async_poll());
                         let status = match fut.as_mut().poll(cx) {
-                            Poll::Ready(Ok(ret)) => ret,
-                            Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
+                            Poll::Ready(Ok(ret)) => { 
+                                process.signal_set(Signal::SIGCONT);
+                                process.cont();
+                                ret
+                            },
+                            Poll::Ready(Err(err)) => {
+                                process.signal_set(Signal::SIGCONT);
+                                process.cont();
+                                return Poll::Ready(Err(err))
+                            },
                             Poll::Pending => continue,
                         };
                         if status.error {
@@ -76,11 +85,15 @@ impl Syscall<'_> {
                 }
                 // some event happens, so evoke the process
                 if events > 0 {
+                    process.signal_set(Signal::SIGCONT);
+                    process.cont();
                     return Poll::Ready(Ok(events));
                 }
 
                 if self.timeout_msecs == 0 {
                     // no timeout, return now;
+                    process.signal_set(Signal::SIGCONT);
+                    process.cont();
                     return Poll::Ready(Ok(0));
                 } else {
                     let waker = cx.waker().clone();
@@ -95,12 +108,17 @@ impl Syscall<'_> {
                 if self.timeout_msecs < (1 << 31)
                     && current_time_ms - self.begin_time_ms >= self.timeout_msecs as usize
                 {
+                    process.signal_set(Signal::SIGCONT);
+                    process.cont();
                     return Poll::Ready(Ok(0));
                 }
 
                 Poll::Pending
             }
         }
+        let proc = self.zircon_process();
+        proc.signal_set(Signal::SIGSTOP);
+        proc.stop();
         let future = PollFuture {
             polls: &mut polls,
             timeout_msecs,

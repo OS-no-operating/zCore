@@ -252,13 +252,13 @@ impl KObjectBase {
     /// All signal callbacks will be called.
     pub fn signal_change(&self, clear: Signal, set: Signal) {
         let mut inner = self.inner.lock();
-        let old_signal = inner.signal;
+        let _old_signal = inner.signal;
         inner.signal.remove(clear);
         inner.signal.insert(set);
         let new_signal = inner.signal;
-        if new_signal == old_signal {
-            return;
-        }
+        // if new_signal == old_signal {
+        //     return;
+        // }
         inner.signal_callbacks.retain(|f| !f(new_signal));
     }
 
@@ -331,6 +331,54 @@ impl dyn KernelObject {
         }
     }
 
+    /// wait 2 signal, if one of them accepted, then go forward.
+    pub fn wait_signal2(self: &Arc<Self>, signal: Signal, signal2: Signal) -> impl Future<Output = Signal> {
+        #[must_use = "wait_signal does nothing unless polled/`await`-ed"]
+        struct SignalFuture {
+            object: Arc<dyn KernelObject>,
+            signal: Signal,
+            signal2: Signal,
+            first: bool,
+        }
+
+        impl Future for SignalFuture {
+            type Output = Signal;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                let current_signal = self.object.signal();
+                //  warn!("poll{:?},{:?},{:?}",current_signal,(self.signal|self.signal2),current_signal & (self.signal|self.signal2));
+                if !(current_signal & (self.signal|self.signal2)).is_empty() {
+                    warn!("poll3{:?}",current_signal);
+                    return Poll::Ready(current_signal);
+                }
+                if self.first {
+                    self.object.add_signal_callback(Box::new({
+                        let signal = self.signal;
+                        let signal2 = self.signal2;
+                        let waker = cx.waker().clone();
+                        move |s| {
+                            // warn!("{:?},{:?}",s,signal);
+                            if (s & (signal|signal2)).is_empty() {
+                                warn!("poll4");
+                                return false;
+                            }
+                            waker.wake_by_ref();
+                            true
+                        }
+                    }));
+                    self.first = false;
+                }
+                Poll::Pending
+            }
+        }
+
+        SignalFuture {
+            object: self.clone(),
+            signal,
+            signal2,
+            first: true,
+        }
+    } 
     /// Once one of the `signal` asserted, push a packet with `key` into the `port`,
     ///
     /// It's used to implement `sys_object_wait_async`.

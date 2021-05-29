@@ -10,7 +10,7 @@
 int main(int argc, char **argv)
 {
     int j =0 ;
-    while(j<400000000){
+    while(j<10000000){
        j+=1;
     }  //Time for parent to excute waitid
     printf("poll Start\n");  
@@ -41,6 +41,8 @@ int main(int argc, char **argv)
 
     ret = poll(fds, 2, 5000);
     printf("End poll\n");
+    int k=0;
+   
     assert(ret == 1);
     assert(fds[1].revents == POLLOUT);
 
@@ -58,3 +60,4 @@ int main(int argc, char **argv)
     printf("child end\n");
     return 0;
 }
+

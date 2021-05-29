@@ -73,6 +73,12 @@ impl ProcessExt for Process {
             if signal.contains(Signal::PROCESS_TERMINATED) {
                 parent.signal_set(Signal::SIGCHLD);
             }
+            if signal.contains(Signal::SIGSTOP){
+                parent.signal_set(Signal::SIGCHLD);
+            }
+            if signal.contains(Signal::SIGCONT){
+                parent.signal_set(Signal::SIGCHLD);
+            }
             false
         }));
         Ok(new_proc)
@@ -86,26 +92,84 @@ impl ProcessExt for Process {
 /// - the child terminated.
 /// - the child was stopped by a signal. TODO
 /// - the child was resumed by a signal. TODO
-pub async fn wait_child(proc: &Arc<Process>, pid: KoID, nonblock: bool) -> LxResult<ExitCode> {
+pub async fn wait_child(
+    proc: &Arc<Process>,
+    pid: KoID,
+    nonblock: bool,
+    waitstop: bool,
+    waitexited: bool,
+    waitcont: bool,
+) -> LxResult<ExitCode> {
     loop {
         let mut inner = proc.linux().inner.lock();
         let child = inner.children.get(&pid).ok_or(LxError::ECHILD)?;
-        if let Status::Exited(code) = child.status() {
-            inner.children.remove(&pid);
-            return Ok(code as ExitCode);
+        if waitexited | nonblock {
+            warn!("status{:?}",child.status());
+            if let Status::Exited(code) = child.status() {
+                warn!{"fen3"};
+                inner.children.remove(&pid);
+                return Ok(code as ExitCode);
+            }
+        }
+        else if waitstop{
+            warn!("status{:?}",child.status());
+            if let Status::Exited(_code) = child.status() {
+                inner.children.remove(&pid);
+                warn!{"fen1"};
+                return Ok(-1 as ExitCode);
+            }
+            else if Status::Ready == child.status() {
+                warn!{"fen2"};
+                return Ok(0 as ExitCode);
+            }
+        }
+        else if waitcont{
+            if Status::Ready != child.status(){
+                return Err(LxError::EAGAIN);
+            }
+            else {
+                let childc: Arc<dyn KernelObject> = child.clone();
+                childc.signal_clear(Signal::PROCESS_TERMINATED);
+                warn!{"startwaitcont"};
+                childc.wait_signal2(Signal::SIGCONT,Signal::PROCESS_TERMINATED).await;
+                warn!{"{:?}",child.status()};
+                if let Status::Exited(_code) = child.status() {
+                    inner.children.remove(&pid);
+                    warn!{"fen1"};
+                    return Ok(-1 as ExitCode);
+                }
+                else if Status::Running == child.status(){
+                    return Ok(0 as ExitCode);
+                }
+            }
         }
         if nonblock {
             return Err(LxError::EAGAIN);
         }
-        let child: Arc<dyn KernelObject> = child.clone();
-        drop(inner);
-        child.signal_clear(Signal::PROCESS_TERMINATED);
-        child.wait_signal(Signal::PROCESS_TERMINATED).await;
+        warn!("barncj");
+        if waitstop {
+            warn!("waitstop");
+            let child: Arc<dyn KernelObject> = child.clone();
+            child.signal_clear(Signal::PROCESS_TERMINATED);
+            child.wait_signal2(Signal::SIGSTOP,Signal::PROCESS_TERMINATED).await;
+            warn!("waitstopend");
+        }
+        else if waitexited {
+            let child: Arc<dyn KernelObject> = child.clone();
+            drop(inner);
+            child.signal_clear(Signal::PROCESS_TERMINATED);
+            warn!("wait4(): son still alive");
+            child.wait_signal(Signal::PROCESS_TERMINATED).await; // wait for setted.
+        }
     }
 }
 
 /// Wait for state changes in a child of the calling process.
-pub async fn wait_child_any(proc: &Arc<Process>, nonblock: bool) -> LxResult<(KoID, ExitCode)> {
+pub async fn wait_child_any(
+    proc: &Arc<Process>,
+    nonblock: bool,
+    _waitstop: bool,
+) -> LxResult<(KoID, ExitCode)> {
     loop {
         let mut inner = proc.linux().inner.lock();
         if inner.children.is_empty() {

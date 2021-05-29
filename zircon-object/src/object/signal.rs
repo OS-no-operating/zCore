@@ -45,6 +45,8 @@ bitflags! {
 
         // for Linux
         const SIGCHLD                       = 1 << 6;
+        const SIGSTOP                       = 1 << 7;
+        const SIGCONT                       = 1 << 8;
 
         // for user
         const USER_SIGNAL_0                 = 1 << 24;

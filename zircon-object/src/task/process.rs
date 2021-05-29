@@ -92,6 +92,10 @@ struct ProcessInner {
 pub enum Status {
     /// Initial state, no thread present in process.
     Init,
+    ///the process is ready to run
+    Ready,
+    // ///thr process is waiting for I/O or event
+    // Waiting,
     /// First thread has started and is running.
     Running,
     /// Process has exited with the code.
@@ -220,6 +224,24 @@ impl Process {
         inner.handles.clear();
     }
 
+        /// block current process
+    /// The process do not terminate immediately when exited.
+    /// It will terminate after all its child threads are terminated.
+    pub fn stop(&self) {
+        let mut inner = self.inner.lock();
+        if Status::Ready == inner.status {
+            return;
+        }
+        inner.status = Status::Ready;
+    }
+    /// simple way to change the status of process
+    pub fn cont(&self){
+        let mut inner = self.inner.lock();
+        if Status::Ready == inner.status {
+            inner.status = Status::Running;
+        }
+
+    }
     /// The process finally terminates.
     fn terminate(&self) {
         let mut inner = self.inner.lock();
@@ -482,6 +504,10 @@ impl Process {
             }
             Status::Running => {
                 info.started = true;
+                info.has_exited = false;
+            }
+            Status::Ready => {
+                info.started = false;
                 info.has_exited = false;
             }
             Status::Exited(ret) => {
